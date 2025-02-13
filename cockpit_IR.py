@@ -1,12 +1,12 @@
+import json
+import os
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
-import time
-import os
 
 # Credenziali
 USERNAME = "xr01.theia@gmail.com"
@@ -56,29 +56,12 @@ def main():
         login_button = driver.find_element(By.CSS_SELECTOR, "button[data-usagetag='login_button']")
         login_button.click()
 
-        # Attesa per completamento login
-        time.sleep(10)
+        # Attesa per il completamento del login
+        time.sleep(5)
 
         # 3. Navigazione diretta alla pagina Cockpit
         driver.get(COCKPIT_URL)
-        time.sleep(5)
-        # 4a. Se appare il dialog dei Keyboard Shortcuts, chiudilo cliccando sull'icona "close"
-        try:
-            keyboard_dialog_close = wait.until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, "div.cockpit-keyboard-description div.header span.uranus-icon.uranus-icon-cursor-pointer")
-                )
-            )
-            driver.execute_script("arguments[0].scrollIntoView(true);", keyboard_dialog_close)
-            time.sleep(1)
-            keyboard_dialog_close.click()
-            print("Dialog Keyboard Shortcuts chiuso.")
-        except Exception as e:
-            print("Dialog Keyboard Shortcuts non presente o già chiuso:", e)
-
-        # Attesa per la stabilizzazione della pagina
-        time.sleep(5)
-
+        time.sleep(200)
         # 4. Attesa e click sul pulsante "OK" del popup
         modal_ok_button = wait.until(
             EC.element_to_be_clickable(
@@ -90,8 +73,19 @@ def main():
         time.sleep(1)
         modal_ok_button.click()
 
-        # Attesa per la stabilizzazione della pagina
-        time.sleep(5)
+        # 4a. Subito dopo, click sul pulsante per passare alla visione IR
+        ir_button = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH, "//div[contains(@class, 'switch-btn')]//button[.//span[normalize-space()='IR']]")
+            )
+        )
+        driver.execute_script("arguments[0].scrollIntoView(true);", ir_button)
+        time.sleep(1)
+        ir_button.click()
+        print("Passaggio alla visione IR eseguito.")
+
+        # Attesa per la stabilizzazione della pagina in modalità IR
+        time.sleep(10)
 
         # 6. Verifica se esiste il pulsante "Reconnect" e, se esiste, cliccalo.
         try:
@@ -110,7 +104,7 @@ def main():
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
 
-        # 6. Estrazione dei frame dal video streammato per 300 secondi
+        # 6. Estrazione dei frame dal video streammato per 300 secondi (5 minuti)
         start_time = time.time()
         end_time = start_time + 300  # 300 secondi = 5 minuti
         while time.time() < end_time:
@@ -119,13 +113,38 @@ def main():
                 stream_element = driver.find_element(By.CSS_SELECTOR, "div.cockpit-realtime-live-mask")
                 # Genera un nome file basato sul timestamp (in millisecondi)
                 timestamp = int(time.time() * 1000)
-                filename = os.path.join(output_folder, f"frame_{timestamp}.png")
+                frame_filename = os.path.join(output_folder, f"frame_{timestamp}.png")
                 # Salva lo screenshot dell'elemento
-                stream_element.screenshot(filename)
-                print(f"Saved frame: {filename}")
+                stream_element.screenshot(frame_filename)
+                print(f"Saved frame: {frame_filename}")
+
+                # Preleva la temperatura minima e massima dall'elemento IR
+                try:
+                    # Individua il contenitore della temperatura
+                    temp_container = driver.find_element(By.CSS_SELECTOR, "div.ir-color-bar div.ir-measure-temperature-range")
+                    spans = temp_container.find_elements(By.TAG_NAME, "span")
+                    if len(spans) >= 2:
+                        min_temp = spans[0].text.strip()
+                        max_temp = spans[1].text.strip()
+                    else:
+                        min_temp = ""
+                        max_temp = ""
+                except Exception as e:
+                    print("Error capturing temperature:", e)
+                    min_temp = ""
+                    max_temp = ""
+
+                # Prepara il dizionario con le temperature
+                temp_info = {"min_temperature": min_temp, "max_temperature": max_temp}
+                # Salva il file JSON con lo stesso nome del frame, ma estensione .json
+                json_filename = os.path.join(output_folder, f"frame_{timestamp}.json")
+                with open(json_filename, "w") as f:
+                    json.dump(temp_info, f)
+                print(f"Saved temperature info: {json_filename}")
+
             except Exception as e:
                 print("Error capturing frame:", e)
-            # Attesa tra un frame e l'altro (regola l'intervallo se necessario)
+            # Attesa tra un frame e l'altro (modificabile se necessario)
             time.sleep(1)
 
     finally:
